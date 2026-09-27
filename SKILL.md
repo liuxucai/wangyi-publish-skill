@@ -2,158 +2,118 @@
 name: wyy-publisher
 description: |
   网易号（mp.163.com）文章发布 Skill。
-  支持自动填标题 + DraftJS 正文章编辑器 + 封面设置 + 发布。
+  支持自动填标题 + DraftJS 正文粘贴注入 + 正文配图上传 + 封面设置 + 发布。
   触发词：网易号发布、发文章到网易号、发网易号
 ---
 
-# 网易号文章发布 Skill v1
+# 网易号文章发布 Skill v2（playwright-core CDP 版）
+
+> 2026-09-27 全流程实测重构。v1 的 xb CLI 路线、ws 模块脚本（lib.js/publish.js/login.js 等）已全部删除——`ws` 模块环境里没有装，那些脚本跑不起来，且 appendChild 填正文方法被证伪。
 
 ## 适用场景
 
-将文章发布到网易号创作平台。
+将文章（标题+正文+正文配图）发布或存草稿到网易号创作平台（mp.163.com）。
 
-## ⚠️ 账号状态限制
+## 前置条件
 
-**网易号需要完成内容审核才能发布文章。**
+| 依赖 | 说明 |
+|------|------|
+| playwright-core | 位于 `~/.workbuddy/binaries/node/workspace/node_modules`，运行时设 `NODE_PATH` 指向该目录 |
+| 隔离 Chrome | 用 isolated-browser 的 launch.js 拉起，profile `~/.chrome_qclaw_wyy`（登录态持久） |
+| 账号已实名 | **未实名的账号发布按钮点了没反应**。实名只能在手机端"网易新闻"App（我的→创作中心→去实名认证）完成，需身份证+人脸，网页端无法代办 |
+| 正文 ≥250 字 | 少于 250 字不会被分发到头条等展现位置 |
 
-发布页若显示 **"您的账号信息正在审核中，请耐心等待哦"**，说明账号尚未审核通过，暂时无法发布。
+### 启动隔离 Chrome（必须后台保活）
 
-## 发布页 URL
-
-```
-https://mp.163.com/#/article-publish
-```
-
-## 发布页关键元素
-
-| 元素 | 选择器 | 说明 |
-|------|--------|------|
-| 标题输入 | `textarea.netease-textarea` | placeholder="请输入标题 (5~30个字)" |
-| 正文编辑器 | `.public-DraftEditor-content` | DraftJS 富文本编辑器 |
-| 发布按钮 | `button` innerText="发布" | 需账号审核通过 |
-| 封面-三图 | `input[type=radio][value=threeImg]` | 默认选中，需上传3张图 |
-| 封面-单图 | `input[type=radio][value=custom]` | 需上传1张图 |
-| 封面-大图 | `input[type=radio][value=bigImg]` | 需上传1张大图 |
-| 封面-自动 | `input[type=radio][value=auto]` | 自动生成封面 |
-
-## 正文要求
-
-- 正文需 **≥250字** 才能分发到头条等展现位置
-- DraftJS 编辑器需要用特殊方法注入内容（不能用 innerHTML 直接替换）
-
-## 发布流程
-
-### 1. 启动浏览器 + 登录
-
-使用固定 user-data-dir 保存登录态：
-```powershell
-$chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-$profileDir = "$env:USERPROFILE\.chrome_qclaw_wyy"
-$url = "https://mp.163.com/#/article-publish"
-
-if (-not (Test-Path $profileDir)) {
-  New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
-}
-
-Start-Process $chromePath -ArgumentList @(
-  "--remote-debugging-port=9222",
-  "--user-data-dir=$profileDir",
-  $url
-)
-```
-
-### 2. 登录（如果需要）
-
-网易号登录表单在跨域 iframe (`dl.reg.163.com`) 内，但 xb 可以操作。
-
-**注意：账号密码填写必须用 `xb type`（逐字输入），不能用 `xb fill`！**
+沙箱会回收 detached 子进程，必须 `run_in_background: true` 执行：
 
 ```bash
-# 1. 清空并逐字输入密码
-node xb.cjs run --browser chrome type "e42" "wangyi.939."
-
-# 2. 点击登录
-node xb.cjs run --browser chrome click "e39"
+ISOB_PROFILE_DIR="C:/Users/甲骨龙集成电脑/.chrome_qclaw_wyy" \
+  node "C:/Users/甲骨龙集成电脑/.workbuddy/skills/isolated-browser/scripts/launch.js" \
+  "https://mp.163.com/#/article-publish" && sleep 7200
 ```
 
-> `e41`=邮箱号，`e42`=密码，`e39`=登录按钮（每次需重新 snapshot 获取 ref）
+### 运行脚本
 
-### 3. 检查账号状态
+```bash
+# 登录（已有登录态会自动跳过）
+NODE_PATH="C:/Users/甲骨龙集成电脑/.workbuddy/binaries/node/workspace/node_modules" \
+  node scripts/login.cjs
 
-发布页显示 **"您的账号信息正在审核中"** = 账号未通过审核，不能发布。
+# 填充+插图+预览（不发布，草稿自动保存）
+NODE_PATH="..." node scripts/publish.cjs title.txt body.txt D:/path/image.jpg
 
-### 4. 填标题
+# 正式发布
+NODE_PATH="..." node scripts/publish.cjs title.txt body.txt D:/path/image.jpg --publish
+```
+
+## 核心技术要点（实测结论，勿走回头路）
+
+### 1. 正文注入：必须用 paste 事件
+
+- ❌ `innerHTML` 替换 —— DraftJS 忽略
+- ❌ `appendChild` 逐段插入 `<p>` —— 视觉上有字，但字数统计"共0字"，**发布出去是空的**（v1 的错误方法）
+- ✅ 点击编辑器聚焦 → `Control+End` 移光标 → 构造 `DataTransfer` + `setData('text/plain', 全文)` → 派发 `ClipboardEvent('paste')`
 
 ```js
-var ta = document.querySelector('textarea.netease-textarea');
-ta.focus();
-var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-setter.call(ta, '标题内容');
-ta.dispatchEvent(new Event('input', {bubbles: true, cancelable: true}));
-ta.dispatchEvent(new Event('change', {bubbles: true, cancelable: true}));
+const dt = new DataTransfer();
+dt.setData('text/plain', text);
+editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
 ```
 
-### 5. 填正文（DraftJS）
+### 2. 正文插图：DataTransfer drop 事件
 
-DraftJS 不能直接 innerHTML 替换，必须用以下方法：
+- 页面上唯一常驻的 `input[type=file]` 是「导入文档」入口（accept=.doc/.docx），**不能用它传图片**
+- 封面"上传图片"按钮点击后弹的是**原生文件对话框**（非 DOM input），Playwright 的 filechooser 事件捕获不到，还会阻塞 CDP 截图——封面自动化不可行
+- ✅ 把图片读成 base64 → `atob` → `Uint8Array` → `new File([arr], 'x.jpg', {type:'image/jpeg'})` → 放入 `DataTransfer.items` → 对 `.public-DraftEditor-content` 派发 `DragEvent('drop')`。图片自动上传到网易图床（dingyue.ws.126.net）并插入光标处
+- **正文无图不允许发布**（弹窗"正文中至少上传一张图片"），插图一举两得（配图+满足发布条件）
 
-```js
-var editor = document.querySelector('.public-DraftEditor-content');
-if (!editor) return 'EDITOR_NF';
+### 3. 封面：直接选"自动"
 
-// 分段落填入（每次清空+重建）
-var text = '...'; // 正文文本
-editor.innerHTML = '';
-var paragraphs = text.split('\n\n');
-paragraphs.forEach(function(p) {
-  p = p.trim();
-  if (!p) return;
-  var pEl = document.createElement('p');
-  pEl.innerText = p;
-  editor.appendChild(pEl);
-});
-editor.dispatchEvent(new Event('input', {bubbles: true, cancelable: true}));
-editor.dispatchEvent(new Event('change', {bubbles: true, cancelable: true}));
-```
+`input[type=radio][value=auto]` 用 `evaluate(el => el.click())` 选中。不要碰单图/三图/大图的上传按钮。
 
-### 6. 发布
+### 4. 标题：React setter
 
-```js
-var allBtns = document.querySelectorAll('button');
-var pubBtn = null;
-for (var i = 0; i < allBtns.length; i++) {
-  if (allBtns[i].innerText && allBtns[i].innerText.trim() === '发布') {
-    pubBtn = allBtns[i];
-    break;
-  }
-}
-pubBtn.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}));
-pubBtn.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-```
+`textarea.netease-textarea`，用 `Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set` 赋值后派发 input/change/blur 事件。
 
-## 文件结构
+### 5. 发布结果判定
 
-```
-skills/wyy-publisher/
-  SKILL.md                    # 本文件
-  scripts/
-    publish.js                # 完整发布脚本
-    lib.js                    # CDP 封装库
-  references/
-    workflow.md               # 详细流程
-    troubleshooting.md        # 问题排查
-    commands.md               # xb 命令参考
-```
+- 点击发布后 URL 不变、无弹窗、页面无变化 = **被"请先通过实名认证再发布内容"拦截**（`document.body.innerText.includes('请先通过实名认证')` 检测）
+- 成功：URL 跳转或出现"发布成功"
 
-## 已知限制
+## 发布页元素速查
 
-1. **账号审核中**：账号未审核通过时不能发布，需等待审核
-2. **封面需上传**：三图/单图/大图模式需要上传图片（暂不支持自动化上传）
-3. **正文≥250字**：正文少于250字不会被分发到头条
-4. **iframe 跨域**：登录表单在 dl.reg.163.com 跨域 iframe，必须用 xb type（不能用 fill）
+| 元素 | 选择器 |
+|------|--------|
+| 标题 | `textarea.netease-textarea`（5~30字） |
+| 正文编辑器 | `.public-DraftEditor-content`（DraftJS） |
+| 字数 | 页面文本 `共(\d+)字` |
+| 封面-自动 | `input[type=radio][value=auto]` |
+| 发布按钮 | `button:visible` 文本恰为"发布" |
+| 实名提示条 | "请先通过实名认证再发布内容 去完成>" |
+
+## 常见问题 → 详见 references/troubleshooting.md
+
+- 登录表单在跨域 iframe，密码必须 `pressSequentially` 逐字输入；用 `input[type="password"]:visible` 选框（第一个密码框是隐藏的）
+- 首次登录可能触发二次验证：滑块（yidun_slider）+ 短信验证码
+- SPA 内 goto hash 有时不生效、404 页没有侧边栏菜单，导航优先从首页菜单点击
 
 ## 账号凭据
 
 - 地址：mp.163.com
 - 账号：13414054304@163.com
 - 密码：wangyi.939.
+- 认证手机：134****4304
+
+## 文件结构
+
+```
+wangyi-publish-skill/
+  SKILL.md                      # 本文件
+  scripts/
+    publish.cjs                 # 发布主脚本（paste 正文 + drop 插图 + 自动封面 + 发布）
+    login.cjs                   # 登录脚本（跨域 iframe 逐字输入）
+  references/
+    workflow.md                 # 详细流程
+    troubleshooting.md          # 问题与解决方法全记录
+```
