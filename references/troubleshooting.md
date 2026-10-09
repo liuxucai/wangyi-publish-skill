@@ -17,7 +17,7 @@
 ### `ws` 模块不存在
 
 **症状**：v1 脚本 `require('ws')` 报 MODULE_NOT_FOUND。
-**解决**：已废弃 ws 方案，改用 playwright-core（`~/.workbuddy/binaries/node/workspace/node_modules`，运行时设 NODE_PATH）。
+**解决**：已废弃 ws 方案，改用 playwright-core（路径由 `../../isolated-browser/scripts/pathkit.js` 运行时探测，无需手工设 NODE_PATH）。
 
 ## 二、登录
 

@@ -9,18 +9,36 @@
  *   - 封面自动选"自动"模式（网页端无法自动化上传封面，会弹原生文件对话框）
  *
  * 依赖:
- *   - playwright-core（NODE_PATH 指向 ~/.workbuddy/binaries/node/workspace/node_modules）
- *   - 隔离 Chrome 已启动且 CDP 可连（见 SKILL.md 启动方法，profile ~/.chrome_qclaw_wyy）
+ *   - playwright-core（路径由 ../../isolated-browser/scripts/pathkit.js 运行时探测，
+ *     也可设 OPENCLAW_NODE_MODULES / NODE_PATH 覆盖）
+ *   - 隔离 Chrome 已启动且 CDP 可连（见 SKILL.md 启动方法，profile 默认 ~/.chrome_qclaw_wyy）
  *   - 账号已登录且已实名认证（未实名时发布按钮点了没反应）
  */
 const fs = require('fs');
 const path = require('path');
-const { chromium } = require('playwright-core');
+
+function loadChromium() {
+  // 首选：公共解析器（不写死用户名 / 盘符 / 版本号）
+  try {
+    return require(path.resolve(__dirname, '..', '..', 'isolated-browser', 'scripts', 'pathkit.js')).chromium();
+  } catch (e) { /* 回退本地探测 */ }
+  const os = require('os');
+  const cands = [
+    process.env.OPENCLAW_NODE_MODULES,
+    path.join(os.homedir(), '.workbuddy', 'binaries', 'node', 'workspace', 'node_modules'),
+  ].filter(Boolean);
+  for (const c of cands) {
+    try { return require(path.join(c, 'playwright-core')).chromium; } catch (e) { /* next */ }
+  }
+  return require('playwright-core').chromium;
+}
+
+const chromium = loadChromium();
 
 const [, , titleFile, bodyFile, imgFile, ...rest] = process.argv;
 const DO_PUBLISH = rest.includes('--publish');
 const cdpIdx = rest.indexOf('--cdp');
-const CDP_PORT = cdpIdx > -1 ? rest[cdpIdx + 1] : 9222;
+const CDP_PORT = cdpIdx > -1 ? rest[cdpIdx + 1] : (process.env.ISOB_CDP_PORT || 9222);
 
 if (!titleFile || !bodyFile) {
   console.error('用法: node publish.cjs <title.txt> <body.txt> [image.jpg] [--publish] [--cdp 9222]');

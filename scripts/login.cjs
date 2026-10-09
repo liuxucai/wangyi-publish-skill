@@ -7,13 +7,32 @@
  * 首次登录可能触发二次验证：滑块（yidun_slider，可尝试模拟人手拖动）+ 短信验证码（需用户手机）。
  */
 const path = require('path');
-const { chromium } = require('playwright-core');
 
-const ACCOUNT = '13414054304@163.com';
-const PASSWORD = 'wangyi.939.';
+// ⚠️ 凭据不写进代码：从环境变量读取（历史版本曾在此明文写死账号密码，已移除）
+//    用法：WYY_ACCOUNT=xxx WYY_PASSWORD=yyy node scripts/login.cjs
+const ACCOUNT = process.env.WYY_ACCOUNT || '';
+const PASSWORD = process.env.WYY_PASSWORD || '';
 const cdpIdx = process.argv.indexOf('--cdp');
-const CDP_PORT = cdpIdx > -1 ? process.argv[cdpIdx + 1] : 9222;
+const CDP_PORT = cdpIdx > -1 ? process.argv[cdpIdx + 1] : (process.env.ISOB_CDP_PORT || 9222);
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function loadChromium() {
+  // 首选：公共解析器（不写死用户名 / 盘符 / 版本号）
+  try {
+    return require(path.resolve(__dirname, '..', '..', 'isolated-browser', 'scripts', 'pathkit.js')).chromium();
+  } catch (e) { /* 回退本地探测 */ }
+  const os = require('os');
+  const cands = [
+    process.env.OPENCLAW_NODE_MODULES,
+    path.join(os.homedir(), '.workbuddy', 'binaries', 'node', 'workspace', 'node_modules'),
+  ].filter(Boolean);
+  for (const c of cands) {
+    try { return require(path.join(c, 'playwright-core')).chromium; } catch (e) { /* next */ }
+  }
+  return require('playwright-core').chromium;
+}
+
+const chromium = loadChromium();
 
 (async () => {
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
@@ -39,6 +58,11 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
     if (await f.locator('input[type="password"]').count() > 0) { target = f; break; }
   }
   if (!target) { console.error('❌ 未找到登录表单 iframe'); process.exit(1); }
+  if (!ACCOUNT || !PASSWORD) {
+    console.error('❌ 未提供凭据。请用环境变量传入，不要把密码写进文件或提交到仓库：');
+    console.error('   WYY_ACCOUNT="邮箱/手机号" WYY_PASSWORD="密码" node scripts/login.cjs');
+    process.exit(1);
+  }
 
   // 账号（页面有多个 input，第一个密码框是隐藏的，必须选可见元素）
   const visInputs = target.locator('input:visible');

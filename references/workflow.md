@@ -11,8 +11,8 @@
 ## Step 0 启动隔离 Chrome
 
 ```bash
-ISOB_PROFILE_DIR="C:/Users/甲骨龙集成电脑/.chrome_qclaw_wyy" \
-  node "C:/Users/甲骨龙集成电脑/.workbuddy/skills/isolated-browser/scripts/launch.js" \
+ISOB_PROFILE_DIR="$HOME/.chrome_qclaw_wyy" \
+  node "$HOME/.workbuddy/skills/isolated-browser/scripts/launch.js" \
   "https://mp.163.com/#/article-publish" && sleep 7200
 ```
 
@@ -22,7 +22,7 @@ ISOB_PROFILE_DIR="C:/Users/甲骨龙集成电脑/.chrome_qclaw_wyy" \
 ## Step 1 登录（scripts/login.cjs）
 
 - playwright `connectOverCDP('http://127.0.0.1:9222')` → 遍历 frames 找 `input[type=password]`
-- 账号/密码均 `pressSequentially` 逐字输入（60ms/字），密码框选 `:visible`
+- 账号/密码从环境变量 `WYY_ACCOUNT` / `WYY_PASSWORD` 读取（**禁止写进文件**），均 `pressSequentially` 逐字输入（60ms/字），密码框选 `:visible`
 - 点击"登录"后等 10s 检查 URL：
   - 含 `login.html` → 可能二次验证（滑块/短信），人工处理
   - 含 `account-protect` → 滑块可自动拖，短信验证码需用户手机

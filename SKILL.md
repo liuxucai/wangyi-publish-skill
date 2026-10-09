@@ -18,7 +18,7 @@ description: |
 
 | 依赖 | 说明 |
 |------|------|
-| playwright-core | 位于 `~/.workbuddy/binaries/node/workspace/node_modules`，运行时设 `NODE_PATH` 指向该目录 |
+| playwright-core | **无需手工指定路径**：由 `../../isolated-browser/scripts/pathkit.js` 运行时探测（WorkBuddy 托管 node → OpenClaw/qclaw 安装目录 → 就近 node_modules）。要强制指定时设 `OPENCLAW_NODE_MODULES` |
 | 隔离 Chrome | 用 isolated-browser 的 launch.js 拉起，profile `~/.chrome_qclaw_wyy`（登录态持久） |
 | 账号已实名 | **未实名的账号发布按钮点了没反应**。实名只能在手机端"网易新闻"App（我的→创作中心→去实名认证）完成，需身份证+人脸，网页端无法代办 |
 | 正文 ≥250 字 | 少于 250 字不会被分发到头条等展现位置 |
@@ -28,23 +28,24 @@ description: |
 沙箱会回收 detached 子进程，必须 `run_in_background: true` 执行：
 
 ```bash
-ISOB_PROFILE_DIR="C:/Users/甲骨龙集成电脑/.chrome_qclaw_wyy" \
-  node "C:/Users/甲骨龙集成电脑/.workbuddy/skills/isolated-browser/scripts/launch.js" \
+ISOB_PROFILE_DIR="$HOME/.chrome_qclaw_wyy" \
+  node "$HOME/.workbuddy/skills/isolated-browser/scripts/launch.js" \
   "https://mp.163.com/#/article-publish" && sleep 7200
 ```
 
 ### 运行脚本
 
+> playwright-core 的路径由脚本自己探测，**不需要**再设 `NODE_PATH`。
+
 ```bash
-# 登录（已有登录态会自动跳过）
-NODE_PATH="C:/Users/甲骨龙集成电脑/.workbuddy/binaries/node/workspace/node_modules" \
-  node scripts/login.cjs
+# 登录（已有登录态会自动跳过；凭据走环境变量，不要写进文件）
+WYY_ACCOUNT="<邮箱或手机号>" WYY_PASSWORD="<密码>" node scripts/login.cjs
 
 # 填充+插图+预览（不发布，草稿自动保存）
-NODE_PATH="..." node scripts/publish.cjs title.txt body.txt D:/path/image.jpg
+node scripts/publish.cjs title.txt body.txt <配图路径>
 
 # 正式发布
-NODE_PATH="..." node scripts/publish.cjs title.txt body.txt D:/path/image.jpg --publish
+node scripts/publish.cjs title.txt body.txt <配图路径> --publish
 ```
 
 ## 核心技术要点（实测结论，勿走回头路）
@@ -101,9 +102,13 @@ editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: t
 ## 账号凭据
 
 - 地址：mp.163.com
-- 账号：13414054304@163.com
-- 密码：wangyi.939.
-- 认证手机：134****4304
+- **凭据不落盘**：历史版本曾把账号密码明文写在本文件和 `scripts/login.cjs` 里，现已移除。
+  需要重新登录时用环境变量传入，不要写进任何文件、也不要提交到仓库：
+  ```bash
+  WYY_ACCOUNT="<邮箱或手机号>" WYY_PASSWORD="<密码>" node scripts/login.cjs
+  ```
+  正常情况下登录态已持久化在隔离 profile（`ISOB_PROFILE_DIR`）里，无需重复登录。
+- ⚠️ 该密码曾以明文提交进 git 历史，**建议到网易号后台改密**，并清理仓库历史。
 
 ## 文件结构
 
