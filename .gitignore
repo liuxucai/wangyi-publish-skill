@@ -1,0 +1,7 @@
+# 运行产物 / 依赖 不入库
+.workspace/
+**/.workspace/
+node_modules/
+*.log
+*.tmp
+scripts/*.png

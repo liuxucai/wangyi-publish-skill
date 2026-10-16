@@ -1,0 +1,16 @@
+2.1.0
+2026-10-13 登录态恢复 + 插图方法换代（CDP 原生拖拽）+ 封面实测：
+- 隔离 Chrome 以网易号专用 profile（~/.chrome_qclaw_wangyi2，端口 9223）重新拉起，用户人工登录恢复登录态。
+  【勘误】SKILL.md 早前写的 profile `.chrome_qclaw_wyy` 不存在，实际为 `.chrome_qclaw_wangyi2`。
+- 【证伪】合成 DragEvent('drop') + DataTransfer/File 插图（v2 旧方法）失效：监听证实事件可达编辑器
+  （types=['Files'], nFiles=1）但 defaultPrevented=false、不触发上传——编辑器升级后校验 isTrusted。
+- 【新方法】CDP Input.dispatchDragEvent（dragEnter/dragOver/drop 三连，files 直接传本地路径，
+  无需 base64），isTrusted=true，2.5s 内插图成功；publish.cjs 插图段整体重写（含失败计数与退出码 5）。
+- 【坑】drop 落点不能用「编辑器 rect.top+300」固定公式：页面滚动后 rect.top 为负，落点飞到工具栏区
+  drop 无效（第一张成功、后续全失败的根因）；改用光标 selection rect + clamp fallback。
+- 封面实测：四模式 threeImg(默认)/custom(单图)/bigImg(大图)/auto(自动)——单图/大图才出现「上传图片」
+  且无 DOM file input（原生对话框，勿点）；auto 无需上传，发布时封面区出现正文图预览，封面生效。
+- 发布被「您的账号未上线，暂不支持发布」拦截（新拦截类型，账号状态限制）：内容/配图/封面已自动
+  存草稿箱（发布页约 1 分钟自动保存），账号上线后打开草稿直接发布；publish.cjs 新增检测 exit 2。
+- page.screenshot 在本页 30s 超时 → publish.cjs 新增 cdpShot()（Page.captureScreenshot）。
+- 新增 content/t_engagement_car.txt + b_engagement_car.txt 文章素材（3 图 9/11/12.jpg 全部入库图床）。
